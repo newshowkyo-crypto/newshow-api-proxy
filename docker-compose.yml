@@ -1,24 +1,71 @@
 version: '3.8'
 
 services:
-  newapi:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: newshow-api-proxy
+  new-api:
+    build: .
+    container_name: new-api-server
     ports:
-      - "3000:3000"
+      - "3000:8000"
     environment:
-      - SQL_DSN=sqlite:///data/one-api.db
       - LOG_LEVEL=info
-      - FRONTEND_BUILD_DIR=/app/web/build
+      - MYSQL_DSN=${MYSQL_DSN:-root:password@tcp(mysql:3306)/new_api?charset=utf8mb4&parseTime=True&loc=Local}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
     volumes:
-      - ./data:/data
+      - ./data:/app/data
       - ./config:/app/config
+    depends_on:
+      - mysql
+      - redis
     restart: unless-stopped
     networks:
-      - api-network
+      - new-api-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  mysql:
+    image: mysql:8.0
+    container_name: new-api-mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root123456}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-new_api}
+      - MYSQL_USER=${MYSQL_USER:-new_api}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-new_api123456}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    networks:
+      - new-api-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: new-api-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - new-api-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
 
 networks:
-  api-network:
+  new-api-network:
     driver: bridge
